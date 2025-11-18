@@ -1,5 +1,5 @@
 # moradi2024cnnFLtransformer
-In this project, the impact of the local model architecture on the performance of federated learning–based clinically significant prostate cancer detection is investigated.
+This project investigates the impact of the local model architecture on the performance of federated learning–based clinically significant prostate cancer detection.
 
 
 Before running preprocessing, make sure that the raw data folders are structured correctly:
@@ -10,12 +10,13 @@ workdir/
 │   └── Dataset104_picai/  
 │       ├── imagesTr/  
 │       ├── labelsTr/  
-│       └── dataset.json
+│       ├── dataset.json
+│       └── dataset_unetr.json
 ├── nnUNet_preprocessed/  
 └── nnUNet_results/  
 ```
 
-where the `dataset.json` is 
+where the `dataset.json` is used for the nnUNet experiments and is 
 ```json
 {
     "channel_names": {
@@ -34,6 +35,49 @@ where the `dataset.json` is
     "release": "1.0",
     "description": "bpMRI scans from PI-CAI dataset to train by nnUNetv2",
     "overwrite_image_reader_writer": "SimpleITKIO"
+}
+```
+
+while the `dataset_unetr.json` is used for the tranformer-based and DynUNet experiments as: 
+
+```json
+{
+    "channel_names": {
+        "0": "T2W",
+        "1": "ADC",
+        "2": "HBV"
+    },
+    "labels": {
+        "background": 0,
+        "lesion": 1
+    },
+    "numTraining": 1200,
+    "file_ending": ".nii.gz",
+    "name": "picai_nnunetv2",
+    "reference": "none",
+    "release": "1.0",
+    "description": "bpMRI scans from PI-CAI dataset to train by nnUNetv2",
+    "overwrite_image_reader_writer": "SimpleITKIO",
+    "training": [
+        {
+            "image": [
+                "./imagesTr/10000_1000000_0000.nii.gz",
+                "./imagesTr/10000_1000000_0001.nii.gz",
+                "./imagesTr/10000_1000000_0002.nii.gz"
+            ],
+            "label": "./labelsTr/10000_1000000.nii.gz"
+        }
+    ],
+    "validation": [
+        {
+            "image": [
+                "./imagesTr/10015_1000015_0000.nii.gz",
+                "./imagesTr/10015_1000015_0001.nii.gz",
+                "./imagesTr/10015_1000015_0002.nii.gz"
+            ],
+            "label": "./labelsTr/10015_1000015.nii.gz"
+        }
+    ]
 }
 ```
 
