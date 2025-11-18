@@ -1,8 +1,24 @@
-# moradi2024cnnFLtransformer
-This project investigates the impact of the local model architecture on the performance of federated learning–based clinically significant prostate cancer detection.
+# Impact of Local Model Design on Prostate Cancer Detection with Federated Learning
 
+This study proposes a **federated learning (FL) solution** for detecting clinically significant prostate cancer (csPCa) on biparametric MRI data (T2W, HBV, and ADC) using data from the [PI-CAI (Prostate Imaging: Cancer AI) grand challenge](https://pi-cai.grand-challenge.org/). More specifically, we investigate the impact of **local model architecture** on the performance of FL for csPCa detection.
 
-Before running preprocessing, make sure that the raw data folders are structured correctly:
+<p align="center">
+  <img src="Figs/topology.png" width="700" alt="Description">
+</p>
+
+To this end, we initially implement the **non-FL solutions** (including local and centralized model training) for csPCa detection using convolutional neural networks (CNNs) including **[nnU-Net](https://github.com/MIC-DKFZ/nnUNet)** and **Dynamic UNet on [MONAI](https://github.com/Project-MONAI)**, and transformer-based model architectures including **[UNETR](https://arxiv.org/abs/2103.10504)** and **[SwinUNETR](https://arxiv.org/abs/2201.01266)**. In the centralized model trainig the data from all clients is collected in a single location. Then we propose the **FL solution** for each scenario, implemented using **[Flower](https://flower.ai/)** FL. Finally, we conclude the work by comparing the prediction performance of the different models for locating csPCa in bpMRI data.
+
+<p align="center">
+  <img src="Figs/pred_img.png" width="700" alt="Description">
+</p>
+
+<p align="center">
+  <img src="Figs/pred_img2.png" width="700" alt="Description">
+</p>
+
+## Data pre-paration and pre-processing
+
+Before starting the experiments, make sure that your dataset is downloaded and organized in the following format.
 
 ```
 workdir/  
@@ -16,7 +32,8 @@ workdir/
 └── nnUNet_results/  
 ```
 
-where the `dataset.json` is used for the nnUNet experiments and is 
+The `dataset.json` file is used for the nnUNet experiments and is:
+
 ```json
 {
     "channel_names": {
@@ -37,8 +54,7 @@ where the `dataset.json` is used for the nnUNet experiments and is
     "overwrite_image_reader_writer": "SimpleITKIO"
 }
 ```
-
-while the `dataset_unetr.json` is used for the tranformer-based and DynUNet experiments as: 
+The `dataset_unetr.json` file is used for the tranformer-based and DynUNet experiments and is:
 
 ```json
 {
@@ -81,28 +97,28 @@ while the `dataset_unetr.json` is used for the tranformer-based and DynUNet expe
 }
 ```
 
-## CNN-based model training - nnUNet V2
+## CNN: nnUNetV2 model training
 
-**Preprocessing:**
+**Preprocessing:** This step runs the preprocessing and ensures the integrity of the prepared dataset before starting the nnUNet training (used nnunetv2-2.6.0).
 
 ```bash
-nnUNetv2_plan_and_preprocess -d 108 -c 3d_fullres --verify_dataset_integrity
+nnUNetv2_plan_and_preprocess -d 101 -c 3d_fullres --verify_dataset_integrity
 ```
 
-**Training (folds 0–4):**
+**Training:** Subsequently, we can train the nnUNet model for the desired number of epochs using 5-fold cross-validation.
 
 ```bash
 for FOLD in 0 1 2 3 4; do
-    nnUNetv2_train Dataset108_picai 3d_fullres "$FOLD" \
+    nnUNetv2_train Dataset101_picai 3d_fullres "$FOLD" \
         -tr nnUNetTrainerCELoss_1000epochs --npz
 done
 ```
 
-## CNN-based model training - MONAI DynUnet
-
+## CNN: DynUnet model training
+The scripts for model training for the `DynUNet` model architecture are provided in `./cnn_nnunet_monai`, where the model training with the desired parameters can be run as:
 ```bash
-python ./cnn_nnunet_monai/monai_dynunet.py \
-    --datasets_json ./nnUNet_raw/Dataset108_picai/dataset_unetr_picai.json \
+python monai_dynunet.py \
+    --datasets_json ./nnUNet_raw/Dataset101_picai/dataset_unetr.json \
     --root_dir ./workdir \
     --num_train 1000 \
     --num_val 300 \
@@ -111,8 +127,8 @@ python ./cnn_nnunet_monai/monai_dynunet.py \
     --eval_num 5
 ```
 
-
-## Transformer-based model training - SwinUNetr
+## Transformer: UNETR and SwinUNETR model training
+Similarly, the scripts for model training for the `UNETR` and `SwinUNETR` model architectures are provided in `./transformers_unetr_swinunetr`, where the model training with the desired parameters can be run as:
 
 ```bash
 python swinunetr_train.py \
@@ -123,4 +139,35 @@ python swinunetr_train.py \
     --max_iterations 5 \
     --batch_size 1 \
     --eval_num 1
+```
+
+# A Flower / PyTorch app: 
+
+Install dependencies and project (`swinunetr-fl`) as
+
+```bash
+cd ./flower/swinunetr-fl
+pip install -e .
+```
+
+In the `swinunetr-fl` directory, use `flwr run` to run a local simulation:
+
+```bash
+flwr run .
+```
+Refer to the [How to Run Simulations](https://flower.ai/docs/framework/how-to-run-simulations.html) guide in the Flower documentation for advice on how to optimize your simulations. The different parts of the application, such as `client_app.py`, `new_strategy.py`, `server_app.py`, and `task.py`, can be updated if you want to adapt the application to your own task or dataset. Similarly, the Flower application for the scenario using the `DynUNet` local model for clients is provided in the `dynunet-fl` folder. With a simple tweak, a new application with a customized model architecture can also be implemented. Please note that implementing a customized aggregation strategy is also possible by updating the strategy file. In Flower, the local model architecture is assigned by the server, which is determined by the first client connected to the federation.
+
+
+## 📖 Citation
+The method was developed at the [CIMORe](https://www.ntnu.edu/isb/mr-cancer) - Cancer Imaging and Multi-Omics Research Group at the Norwegian University of Science and Technology (NTNU) in Trondheim, Norway. If you use this work, please cite:
+
+```bibtex
+@article{moradi2025optimizing,
+  title={Optimizing Federated Learning Configurations for MRI Prostate Segmentation and Cancer Detection: A Simulation Study},
+  author={Moradi, Ashkan and Zerka, Fadila and Bosma, Joeran Sander and Sunoqrot, Mohammed RS and Abrahamsen, Bendik S and Yakar, Derya and Geerdink, Jeroen and Huisman, Henkjan and Bathen, Tone Frost and Elschot, Mattijs},
+  journal={Radiology: Artificial Intelligence},
+  pages={e240485},
+  year={2025},
+  publisher={Radiological Society of North America}
+}
 ```
