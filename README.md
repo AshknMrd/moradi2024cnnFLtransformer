@@ -66,3 +66,17 @@ python ./cnn_nnunet_monai/monai_dynunet.py \
     --batch_size 2 \
     --eval_num 5
 ```
+
+
+## Transformer-based model training - SwinUNetr
+
+```bash
+python swinunetr_train.py \
+    --datasets_json ./workdir/dataset.json \
+    --root_dir ./workdir \
+    --num_train 100 \
+    --num_val 20 \
+    --max_iterations 5 \
+    --batch_size 1 \
+    --eval_num 1
+```

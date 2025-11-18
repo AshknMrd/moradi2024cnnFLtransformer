@@ -3,45 +3,41 @@ import json
 import datetime
 import warnings
 import argparse
+
 import torch
+from torch.utils.data import DataLoader
 from monai.losses import FocalLoss
 from monai.metrics import DiceMetric
-from monai.networks.nets import DynUNet
+from monai.networks.nets import SwinUNETR
 from monai.transforms import (
     Compose, LoadImaged, EnsureChannelFirstd, Orientationd,
     Spacingd, SpatialPadd, CenterSpatialCropd, RandFlipd,
     RandRotate90d, RandShiftIntensityd, ScaleIntensityRangePercentilesd,
     AsDiscrete
 )
-from monai.data import Dataset, DataLoader, decollate_batch, load_decathlon_datalist
+from monai.data import Dataset, decollate_batch, load_decathlon_datalist
 from tqdm import tqdm
 
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
 
-# ----------------------------
-# CLI Arguments
-# ----------------------------
 def get_args():
-    parser = argparse.ArgumentParser(description="Train DynUNet with MONAI and nnU-Net dataset")
-    parser.add_argument("--root_dir", type=str, default="./raw_data", help="Root directory for outputs")
-    parser.add_argument("--datasets_json", type=str, required=True, help="Path to dataset JSON file")
-    parser.add_argument("--num_train", type=int, default=10, help="Number of training samples")
-    parser.add_argument("--num_val", type=int, default=2, help="Number of validation samples")
+    parser = argparse.ArgumentParser(description="Train SwinUNETR with MONAI")
+    parser.add_argument("--root_dir", type=str, default="./transformer/swinUNETR_training_output_temp",
+                        help="Root directory to save outputs")
+    parser.add_argument("--datasets_json", type=str, required=True,
+                        help="Path to dataset JSON file")
+    parser.add_argument("--num_train", type=int, default=100, help="Number of training samples")
+    parser.add_argument("--num_val", type=int, default=20, help="Number of validation samples")
     parser.add_argument("--max_iterations", type=int, default=5, help="Number of global training iterations")
     parser.add_argument("--eval_num", type=int, default=1, help="Frequency of evaluation")
-    parser.add_argument("--batch_size", type=int, default=1, help="Batch size for training and validation")
+    parser.add_argument("--batch_size", type=int, default=1, help="Batch size")
     parser.add_argument("--device", type=str, default="cuda", help="Device to use: 'cuda' or 'cpu'")
     return parser.parse_args()
 
 
-# ----------------------------
-# Main function
-# ----------------------------
 def main():
     args = get_args()
-
-    # Set up directories
     current_date = datetime.datetime.now().strftime("%Y-%m-%d")
     root_dir = os.path.join(args.root_dir, current_date)
     os.makedirs(root_dir, exist_ok=True)
@@ -79,28 +75,27 @@ def main():
     # ----------------------------
     # Load datasets
     # ----------------------------
-    train_files = load_decathlon_datalist(args.datasets_json, True, "training")[:args.num_train]
-    val_files = load_decathlon_datalist(args.datasets_json, True, "validation")[:args.num_val]
+    train_files = Dataset(data=load_decathlon_datalist(args.datasets_json, True, "training")[:args.num_train],
+                          transform=train_transforms)
+    train_loader = DataLoader(train_files, batch_size=args.batch_size, shuffle=True, num_workers=8, pin_memory=True)
 
-    train_ds = Dataset(data=train_files, transform=train_transforms)
-    train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, num_workers=8, pin_memory=True)
-
-    val_ds = Dataset(data=val_files, transform=val_transforms)
-    val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, num_workers=4, pin_memory=True)
+    val_files = Dataset(data=load_decathlon_datalist(args.datasets_json, True, "validation")[:args.num_val],
+                        transform=val_transforms)
+    val_loader = DataLoader(val_files, batch_size=args.batch_size, shuffle=False, num_workers=4, pin_memory=True)
 
     # ----------------------------
     # Model, Loss, Optimizer
     # ----------------------------
-    model = DynUNet(
-        spatial_dims=3,
+    model = SwinUNETR(
         in_channels=3,
         out_channels=2,
-        filters=[32, 64, 128, 256, 320],
-        kernel_size=[3, 3, 3, 3, 3],
-        strides=[1, 2, 2, 2, 2],
-        upsample_kernel_size=[2, 2, 2, 2],
-        norm_name="INSTANCE",
-        res_block=True
+        img_size=(256, 256, 32),
+        feature_size=48,
+        drop_rate=0.02,
+        attn_drop_rate=0.0,
+        dropout_path_rate=0.1,
+        use_checkpoint=True,
+        use_v2=True
     ).to(device)
 
     loss_function = FocalLoss(to_onehot_y=True, gamma=2.0)
@@ -111,14 +106,14 @@ def main():
     post_pred = AsDiscrete(argmax=True, to_onehot=2)
     dice_metric = DiceMetric(include_background=False, reduction="mean", get_not_nans=False)
 
-    # ----------------------------
-    # Training Loop
-    # ----------------------------
     epoch_loss_values = []
     metric_values = []
     dice_val_best = 0.0
     global_step_best = 0
 
+    # ----------------------------
+    # Training loop
+    # ----------------------------
     for global_step in range(args.max_iterations):
         model.train()
         epoch_loss = 0
@@ -132,7 +127,6 @@ def main():
             optimizer.step()
             optimizer.zero_grad()
             epoch_loss += loss.item()
-
             print(f"Train loss at step {step}/{len(train_loader)}: {loss:.4f}")
 
         epoch_loss_avg = epoch_loss / step
@@ -163,19 +157,15 @@ def main():
                 if mean_dice_val > dice_val_best:
                     dice_val_best = mean_dice_val
                     global_step_best = global_step
-                    torch.save(model.state_dict(), os.path.join(root_dir, f"best_metric_model_{current_date}.pth"))
+                    torch.save(model.state_dict(),
+                               os.path.join(root_dir, f"best_metric_model_swinUNETR_{current_date}.pth"))
 
-    # Save final model
+    # Save final model and metrics
     torch.save(model.state_dict(), os.path.join(root_dir, f"final_model_FocalLoss_{current_date}.pth"))
-
-    # Save metrics
-    json_data = {
-        "global_step": list(range(args.max_iterations)),
-        "loss": epoch_loss_values,
-        "dice_metric": metric_values
-    }
-    with open(os.path.join(root_dir, f"data_metrics_{current_date}.json"), "w") as f:
-        json.dump(json_data, f, indent=4)
+    json_data = {"global_step": list(range(args.max_iterations)),
+                 "loss": epoch_loss_values, "dice_metric": metric_values}
+    with open(os.path.join(root_dir, f"data_swinUNETR_{current_date}.json"), "w") as json_file:
+        json.dump(json_data, json_file, indent=4)
 
     print(f"\nTraining completed. Best metric: {dice_val_best:.4f} at iteration {global_step_best}")
 
