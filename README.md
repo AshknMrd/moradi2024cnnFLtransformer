@@ -57,7 +57,7 @@ done
 ## CNN-based model training - MONAI DynUnet
 
 ```bash
-python train_script.py \
+python ./cnn_nnunet_monai/monai_dynunet.py \
     --datasets_json ./nnUNet_raw/Dataset108_picai/dataset_unetr_picai.json \
     --root_dir ./workdir \
     --num_train 1000 \
